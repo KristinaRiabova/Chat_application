@@ -26,11 +26,11 @@ int main() {
 
     std::cout << "Connected to server.\n";
 
-    // Sending room ID to the server
+
     int roomID;
     std::cout << "Enter the room ID: ";
     std::cin >> roomID;
-    std::cin.ignore(); // Clear input buffer
+    std::cin.ignore();
     send(clientSocket, &roomID, sizeof(roomID), 0);
 
     pthread_t receiveThread;
@@ -45,9 +45,9 @@ int main() {
         std::cout << "You: ";
         std::cin.getline(message, sizeof(message));
         if (strncmp(message, "/join ", 6) == 0) {
-            // Если введена команда перехода в другую комнату
+
             send(clientSocket, message, strlen(message), 0);
-            continue; // Продолжаем вводить сообщения после отправки команды
+            continue;
         }
         send(clientSocket, message, strlen(message), 0);
     }

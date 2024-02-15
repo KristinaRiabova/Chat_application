@@ -3,47 +3,8 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <pthread.h>
-#include <sys/stat.h>
-#include <fstream>
 
 void* receiveMessages(void* arg);
-
-const char* clientFolderPath = "client2_files";
-
-void sendFile(int clientSocket, const std::string& fileName) {
-    std::ifstream fileToSend(std::string(clientFolderPath) + "/" + fileName, std::ios::binary);
-    if (!fileToSend) {
-        std::cerr << "Failed to open file: " << fileName << std::endl;
-        return;
-    }
-
-    // Определяем размер файла
-    fileToSend.seekg(0, std::ios::end);
-    int fileSize = fileToSend.tellg();
-    fileToSend.seekg(0, std::ios::beg);
-
-    // Отправляем размер файла
-    send(clientSocket, &fileSize, sizeof(fileSize), 0);
-
-    // Создаем буфер для файла
-    char buffer[fileSize];
-    // Читаем содержимое файла в буфер
-    fileToSend.read(buffer, fileSize);
-    fileToSend.close();
-
-    // Отправляем содержимое файла
-    send(clientSocket, buffer, fileSize, 0);
-}
-
-void saveFile(const std::string& fileName, char* fileData, size_t fileSize) {
-    std::ofstream outfile(fileName, std::ios::binary);
-    if (outfile.is_open()) {
-        outfile.write(fileData, fileSize);
-        std::cout << "File saved: " << fileName << std::endl;
-    } else {
-        std::cerr << "Error creating file: " << fileName << std::endl;
-    }
-}
 
 int main() {
     int clientSocket = socket(AF_INET, SOCK_STREAM, 0);
@@ -65,11 +26,11 @@ int main() {
 
     std::cout << "Connected to server.\n";
 
+
     int roomID;
     std::cout << "Enter the room ID: ";
     std::cin >> roomID;
     std::cin.ignore();
-
     send(clientSocket, &roomID, sizeof(roomID), 0);
 
     pthread_t receiveThread;
@@ -83,31 +44,10 @@ int main() {
     while (true) {
         std::cout << "You: ";
         std::cin.getline(message, sizeof(message));
-        if (strncmp(message, "/join ", 6) == 0 || strncmp(message, "/file ", 6) == 0) {
+        if (strncmp(message, "/join ", 6) == 0) {
+
             send(clientSocket, message, strlen(message), 0);
-            if (strncmp(message, "/file", 5) == 0) {
-                send(clientSocket, message, strlen(message), 0);
-                std::string fileName = message + 6;
-
-                std::ifstream fileToSend(std::string(clientFolderPath) + "/" + fileName, std::ios::binary);
-                if (!fileToSend) {
-                    std::cerr << "Failed to open file: " << fileName << std::endl;
-                    continue;
-                }
-
-                fileToSend.seekg(0, std::ios::end);
-                int fileSize = fileToSend.tellg();
-                fileToSend.seekg(0, std::ios::beg);
-
-                send(clientSocket, &fileSize, sizeof(fileSize), 0);
-
-                char buffer[fileSize];
-                fileToSend.read(buffer, fileSize);
-                fileToSend.close();
-
-                send(clientSocket, buffer, fileSize, 0);
-                continue;
-            }
+            continue;
         }
         send(clientSocket, message, strlen(message), 0);
     }
