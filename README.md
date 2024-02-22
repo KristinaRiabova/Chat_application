@@ -1,4 +1,4 @@
-##General System Description
+## General System Description
 
 Client-server chat application developed in C++ using sockets for message exchange between clients and the server.
 Port: System utilizes port 12341 for message exchange between clients and the server.
@@ -6,7 +6,7 @@ IP Address: For local testing of application, I use the standard IP address "127
 Message Buffers: In system, a standard buffer size of 1024 bytes is used for exchanging textual messages between clients and the server. This buffer size provides sample space for most text messages users may send and receive in the chat.
 Files and Large Messages: To transmit files between clients and the server, a special procedure is employed to handle larger file sizes. When transmitting files, the buffer size may be dynamically adapted based on the size of the file being transferred to ensure efficient data transmission.
 
-##Application protocol description
+## Application protocol description
 TCP Connection Handling: The provided code effectively manages TCP connections, with clients initiating connections and the server accepting them, allocating a new thread for each client.
 Room Management: The implementation maintains chat rooms efficiently, allowing clients to join, send messages, and share files within specific rooms.
 Mutexes and Threads: The use of mutexes and threads ensures proper synchronization and prevents data corruption in a multi-threaded environment.
