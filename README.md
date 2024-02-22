@@ -25,3 +25,26 @@ interaction within the chat environment.
 Threads: The use of threads allows for efficient concurrency management within the server application. Each client connection and chat room is handled in a separate thread, enabling parallel processing of client requests and facilitating real-time communication among users. This architecture enhances the scalability and responsiveness of the chat system, accommodating a growing number of users and ensuring optimal performance.
 
 
+
+
+
+
+<img width="482" alt="image" src="https://github.com/KristinaRiabova/Chat_application/assets/103763577/db8bb936-f690-4d36-8717-0ea6115bc580">
+
+
+
+
+
+
+
+
+<img width="369" alt="image" src="https://github.com/KristinaRiabova/Chat_application/assets/103763577/37d2d97c-8812-43ea-b9db-f631d03b2434">
+
+
+
+
+
+
+
+
+<img width="230" alt="image" src="https://github.com/KristinaRiabova/Chat_application/assets/103763577/db271fb5-dfba-4fb9-87b4-6c49617b692f">
