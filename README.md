@@ -15,3 +15,4 @@ Binary Data Transfer: Binary data transfer is employed for efficient transmissio
 Command Exchange: Clients communicate with the server using predefined commands (e.g., SEND, EXIT) and exchange messages with other clients. The server processes these commands and messages accordingly, ensuring seamless interaction within the chat environment.
 Threads: The use of threads allows for efficient concurrency management within the server application. Each client connection and chat room is handled in a separate thread, enabling parallel processing of client requests and facilitating real-time communication among users. This architecture enhances the scalability and responsiveness of the chat system, accommodating a growing number of users and ensuring optimal performance.
 
+
