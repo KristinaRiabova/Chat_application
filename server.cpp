@@ -14,6 +14,9 @@
 #include <sys/stat.h>
 #include <algorithm>
 #include <condition_variable>
+#include <cerrno>
+
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 class SocketConnection {
 private:
@@ -94,13 +97,13 @@ public:
     void addClient(int clientSocket) {
         std::lock_guard<std::mutex> lock(roomMutex);
         clients.push_back(clientSocket);
-        std::cout << "CLIENT " << clientSocket << " JOINED ROOM " << name << std::endl;
+        std::cout << "Client " << clientSocket << " joined room " << name << std::endl;
     }
 
     void removeClient(int clientSocket) {
         std::lock_guard<std::mutex> lock(roomMutex);
         clients.erase(std::remove(clients.begin(), clients.end(), clientSocket), clients.end());
-        std::cout << "CLIENT " << clientSocket << " LEFT THE ROOM " << name << std::endl;
+        std::cout << "Client " << clientSocket << " left room " << name << std::endl;
     }
 
     void addMessageToQueue(const ChatMessage& message) {
@@ -115,40 +118,49 @@ public:
         return name;
     }
 
+    void processFileMessage(const ChatMessage& message) {
+        std::cout << "Client " << message.senderSocket << " wants to send a file: " << message.filename << std::endl;
+
+        for (int clientSocket : clients) {
+            if (clientSocket != message.senderSocket) {
+                std::string askClient = "\nClient " + message.senderName + " wants to send " + message.filename + ". Do you want to receive? (YES/NO)";
+                send(clientSocket, askClient.c_str(), askClient.length(), 0);
+            }
+        }
+    }
+
+    void processTextMessage(const ChatMessage& message) {
+        for (int clientSocket : clients) {
+            if (clientSocket != message.senderSocket) {
+                std::string messageContentName = "\n" + message.senderName + ": " + message.content;
+                send(clientSocket, messageContentName.c_str(), messageContentName.length(), 0);
+            }
+        }
+    }
+
     void broadcastMessages() {
         while (true) {
             std::unique_lock<std::mutex> lock(roomMutex);
-            messageCondition.wait(lock, [this]{ return !messageQueue.empty();});
+            messageCondition.wait(lock, [this]{ return !messageQueue.empty(); });
+
             while (!messageQueue.empty()) {
                 ChatMessage message = messageQueue.front();
                 messageQueue.pop();
-                if (message.content.find("SEND ") == 0){
-                    struct stat fileInfo{};
-                    std::cout << "Client " << message.senderSocket << " sends a file " << message.filename << std::endl;
-                    lock.unlock();
-                    for (int clientSocket : clients) {
-                        if (clientSocket != message.senderSocket){
-                            std::string askClient = "\nCLIENT " + message.senderName + " wants to send " + message.filename + " file which size is 1 MB, do you want to receive?";
-                            send(clientSocket, askClient.c_str(), askClient.length(), 0);
-                        }
-                    }
-                    lock.lock();
+
+                if (message.content.find("SEND ") == 0) {
+                    processFileMessage(message);
                 } else {
-                    lock.unlock();
-                    for (int clientSocket : clients) {
-                        if (clientSocket != message.senderSocket){
-                            std::string messageContentName = "\n" + message.senderName + ": " + message.content;
-                            send(clientSocket, messageContentName.c_str(), messageContentName.length(), 0);
-                        }
-                    }
-                    lock.lock();
+                    processTextMessage(message);
                 }
             }
-            if (clients.empty()){
+
+            if (clients.empty()) {
                 break;
             }
         }
     }
+
+
 };
 
 class FileManager {
@@ -188,7 +200,7 @@ void FileManager::copyFile(const std::string& sourcePath, const std::string& des
         send(socket, confirm, strlen(confirm), 0);
 
         fileMutex.lock();
-        std::cout << " CLIENT " << socket << " accepted and downloaded a file" << std::endl;
+        std::cout << " Client " << socket << " accepted and downloaded a file" << std::endl;
         fileMutex.unlock();
     } else {
         fileMutex.lock();
@@ -199,8 +211,6 @@ void FileManager::copyFile(const std::string& sourcePath, const std::string& des
     }
 }
 
-
-
 class ChatServer {
 private:
     int port = 12341;
@@ -210,9 +220,11 @@ private:
     std::vector<std::unique_ptr<ChatRoom>> chatRooms;
     std::mutex chatRoomsMutex;
     std::string directoryForCopy;
+    std::mutex mutex;
 
     void listenSocket(){
         if (serverSocket.listenConnection() == -1) {
+            std::cerr << "Failed to listen on port " << port << ". Exiting..." << std::endl;
             return;
         } else {
             std::cout << "Server listening on port " << port << std::endl;
@@ -244,11 +256,7 @@ public:
         }
     }
 
-    void setDirectories(std::string& clientName, std::string& clientFolderPath, std::string& serverFolderPath) {
-        std::string baseFoldersPath = "./chat_app/chatapp_/";
-        clientFolderPath = baseFoldersPath + clientName;
-        serverFolderPath = baseFoldersPath + "server" + clientName.substr(1);
-
+    void createClientDirectory(const std::string& clientFolderPath) {
         if (!std::filesystem::exists(clientFolderPath)) {
             if (std::filesystem::create_directories(clientFolderPath)) {
                 std::cout << "Created client directory: " << clientFolderPath << std::endl;
@@ -256,7 +264,9 @@ public:
                 std::cerr << "Failed to create client directory: " << clientFolderPath << std::endl;
             }
         }
+    }
 
+    void createServerDirectory(const std::string& serverFolderPath) {
         if (!std::filesystem::exists(serverFolderPath)) {
             if (std::filesystem::create_directories(serverFolderPath)) {
                 std::cout << "Created server directory: " << serverFolderPath << std::endl;
@@ -266,27 +276,49 @@ public:
         }
     }
 
-    void getClientNameAndRoom(int clientSocket, std::string& clientName, std::string& roomName){
+    void setDirectories(const std::string& clientName, std::string& clientFolderPath, std::string& serverFolderPath) {
+        std::string baseFoldersPath = "./chat_app/chatapp_/";
+        clientFolderPath = baseFoldersPath + clientName;
+        serverFolderPath = baseFoldersPath + "server" + clientName.substr(1);
+
+        std::lock_guard<std::mutex> lock(mutex);
+
+        createClientDirectory(clientFolderPath);
+        createServerDirectory(serverFolderPath);
+    }
+
+    std::string readSocketString(int clientSocket) {
         char buffer[1024];
         memset(buffer, 0, sizeof(buffer));
         ssize_t bytesRead = recv(clientSocket, buffer, sizeof(buffer), 0);
         if (bytesRead <= 0) {
-            std::cerr << "Failed to read client's name.\n";
+            std::cerr << "Failed to read from socket.\n";
             close(clientSocket);
-            return;
+            return "";
         }
-        clientName = std::string(buffer, bytesRead);
+        return std::string(buffer, bytesRead);
+    }
 
-        memset(buffer, 0, sizeof(buffer));
-        bytesRead = recv(clientSocket, buffer, sizeof(buffer), 0);
-        if (bytesRead <= 0) {
-            std::cerr << "Failed to read room name.\n";
-            close(clientSocket);
-            return;
-        }
-        roomName = std::string(buffer, bytesRead);
 
-        std::cout << "CLIENT " << clientName << " join to the room: " << roomName << std::endl;
+    std::string readClientName(int clientSocket) {
+        return readSocketString(clientSocket);
+    }
+
+
+    std::string readRoomName(int clientSocket) {
+        return readSocketString(clientSocket);
+    }
+
+
+    void printClientRoomInfo(const std::string& clientName, const std::string& roomName) {
+        std::cout << "Client " << clientName << " joined room: " << roomName << std::endl;
+    }
+
+
+    void getClientNameAndRoom(int clientSocket, std::string& clientName, std::string& roomName){
+        clientName = readClientName(clientSocket);
+        roomName = readRoomName(clientSocket);
+        printClientRoomInfo(clientName, roomName);
     }
 
     ChatRoom* findOrCreateRoom(const std::string& roomName) {
@@ -299,6 +331,9 @@ public:
         chatRooms.emplace_back(std::make_unique<ChatRoom>(roomName));
         return chatRooms.back().get();
     }
+
+
+
 
     void handleCommunication(int clientSocket) {
         std::string roomName;
@@ -313,41 +348,72 @@ public:
         room->addClient(clientSocket);
         std::string pathToFile;
         std::string pathToCopiedFile;
+        bool rejoin = false;
 
         while (true) {
-            char buffer[1024];
-            memset(buffer, 0, sizeof(buffer));
-            ssize_t receivedBytes = serverSocket.receiveData(clientSocket, buffer, sizeof(buffer), 0);
-            if (receivedBytes > 0) {
-                std::string content(buffer, receivedBytes);
-                if (content == "EXIT") {
-                    room->removeClient(clientSocket);
-                    std::cout << "Client " << clientSocket << " has left the room " << roomName << std::endl;
-                    getClientNameAndRoom(clientSocket, clientName, roomName);
-                } else if (content.find("YES ") == 0) {
-                    std::string filename = content.substr(4);
-                    pathToFile = directoryForCopy;
-                    pathToCopiedFile = clientFolderPath + "/" + filename;
-                    FileManager::copyFile(pathToFile, pathToCopiedFile, clientSocket);
-                } else if (content.find("NO ") == 0) {
-                    std::string filename = content.substr(3);
-                    pathToFile = serverFolderPath + "/" + filename;
-                    std::filesystem::remove(pathToFile);
-                } else if (content.find("SEND ") == 0) {
-                    std::string filename = content.substr(5);
-                    pathToFile = clientFolderPath + "/" + filename;
-                    pathToCopiedFile = serverFolderPath + "/" + filename;
-                    FileManager::copyFile(pathToFile, pathToCopiedFile, clientSocket);
-                    directoryForCopy = pathToCopiedFile;
-                    ChatMessage message{content, clientName, filename, clientSocket, room->nextMessageId++};
-                    room->addMessageToQueue(message);
-                } else {
-                    ChatMessage message{content, clientName, " ", clientSocket, room->nextMessageId++};
-                    room->addMessageToQueue(message);
-                }
+            if (rejoin) {
+                getClientNameAndRoom(clientSocket, clientName, roomName);
+                room = findOrCreateRoom(roomName);
+                room->addClient(clientSocket);
+                rejoin = false;
+
             } else {
-                serverSocket.reportError("Received failed.");
-                break;
+                char buffer[1024];
+                memset(buffer, 0, sizeof(buffer));
+                ssize_t receivedBytes = serverSocket.receiveData(clientSocket, buffer, sizeof(buffer), 0);
+                if (receivedBytes > 0) {
+                    std::string content(buffer, receivedBytes);
+                    if (content == "REJOIN") {
+                        room->removeClient(clientSocket);
+
+                        std::cout << "Client " << clientSocket << " has left room " << roomName << ". And will rejoin to another." << std::endl;
+
+                        rejoin = true;
+
+
+                    } else if (content.find("YES ") == 0) {
+                        std::string filename = content.substr(4);
+
+
+                        pathToFile = directoryForCopy;
+                        pathToCopiedFile = clientFolderPath + "/" + filename;
+
+                        FileManager::copyFile(pathToFile, pathToCopiedFile, clientSocket);
+                    } else if (content.find("NO ") == 0) {
+                        std::string filename = content.substr(3);
+
+
+                        pathToFile = serverFolderPath + "/" + filename;
+
+
+                        std::filesystem::remove(pathToFile);
+                    } else if (content.find("SEND ") == 0) {
+                        std::string filename = content.substr(5);
+
+                        pathToFile = clientFolderPath + "/" + filename;
+                        pathToCopiedFile = serverFolderPath + "/" + filename;
+
+
+                        FileManager::copyFile(pathToFile, pathToCopiedFile, clientSocket);
+
+
+                        directoryForCopy = pathToCopiedFile;
+
+
+                        ChatMessage message{content, clientName, filename, clientSocket, room->nextMessageId++};
+                        room->addMessageToQueue(message);
+                    } else if (content == "EXIT") {
+                        room->removeClient(clientSocket);
+
+                        std::cout << "Client " << clientSocket << " has left room " << roomName << std::endl;
+                    } else {
+                        ChatMessage message{content, clientName, " ", clientSocket, room->nextMessageId++};
+                        room->addMessageToQueue(message);
+                    }
+                } else {
+                    std::cerr << "Received failed: " << strerror(errno) << std::endl;
+                    break;
+                }
             }
         }
 
