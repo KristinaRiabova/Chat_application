@@ -108,17 +108,19 @@ public:
 
     void addMessageToQueue(const ChatMessage& message) {
         {
-            std::lock_guard<std::mutex> lock(roomMutex);
-            messageQueue.push(message);
+            std::lock_guard<std::mutex> lock(roomMutex); // Lock the mutex to ensure thread safety
+            messageQueue.push(message); // Add the message to the message queue
         }
-        messageCondition.notify_one();
+        messageCondition.notify_one(); // Notify one waiting thread that a new message is available
     }
+
 
     std::string getName() const {
         return name;
     }
 
     void processFileMessage(const ChatMessage& message) {
+        std::unique_lock<std::mutex> lock(roomMutex);
         std::cout << "Client " << message.senderSocket << " wants to send a file: " << message.filename << std::endl;
 
         for (int clientSocket : clients) {
@@ -130,6 +132,7 @@ public:
     }
 
     void processTextMessage(const ChatMessage& message) {
+        std::unique_lock<std::mutex> lock(roomMutex);
         for (int clientSocket : clients) {
             if (clientSocket != message.senderSocket) {
                 std::string messageContentName = "\n" + message.senderName + ": " + message.content;
@@ -213,48 +216,49 @@ void FileManager::copyFile(const std::string& sourcePath, const std::string& des
 
 class ChatServer {
 private:
-    int port = 12341;
-    sockaddr_in clientAddress;
-    SocketConnection serverSocket;
-    std::vector<std::thread> clientThreads;
-    std::vector<std::unique_ptr<ChatRoom>> chatRooms;
-    std::mutex chatRoomsMutex;
-    std::string directoryForCopy;
-    std::mutex mutex;
+    int port = 12342; // Port number the server will listen on
+    sockaddr_in clientAddress; // Information about the client's address
+    SocketConnection serverSocket; // Instance of a SocketConnection class for server communication
+    std::vector<std::thread> clientThreads; // Vector to hold threads for handling client communication
+    std::vector<std::unique_ptr<ChatRoom>> chatRooms; // Vector to hold unique pointers to ChatRoom objects
+    std::mutex chatRoomsMutex; // Mutex to synchronize access to the chatRooms vector
+    std::string directoryForCopy; // Directory path for file copying
+    std::mutex mutex; // Mutex for general synchronization purposes
 
-    void listenSocket(){
-        if (serverSocket.listenConnection() == -1) {
-            std::cerr << "Failed to listen on port " << port << ". Exiting..." << std::endl;
+    void listenSocket(){ // Method to listen for incoming client connections
+        if (serverSocket.listenConnection() == -1) { // Attempt to listen on the specified port
+            std::cerr << "Failed to listen on port " << port << ". Exiting..." << std::endl; // Print error message if listening fails
             return;
         } else {
-            std::cout << "Server listening on port " << port << std::endl;
+            std::cout << "Server listening on port " << port << std::endl; // Print message indicating successful listening
 
-            while (true) {
+            while (true) { // Infinite loop to continuously accept client connections
 
-                int clientSocket = serverSocket.acceptConnection(clientAddress);
-                if (clientSocket == -1) {
-                    serverSocket.reportError("Error accepting client connection");
-                    break;
+                int clientSocket = serverSocket.acceptConnection(clientAddress); // Accept incoming client connection
+                if (clientSocket == -1) { // Check if the client connection was unsuccessful
+                    serverSocket.reportError("Error accepting client connection"); // Print error message if accepting connection fails
+                    break; // Exit the loop if there is an error
                 }
 
-                std::cout << "Accepted connection from " << inet_ntoa(clientAddress.sin_addr) << ":" << ntohs(clientAddress.sin_port) << std::endl;
+                std::cout << "Accepted connection from " << inet_ntoa(clientAddress.sin_addr) << ":" << ntohs(clientAddress.sin_port) << std::endl; // Print client connection details
 
-                clientThreads.emplace_back(&ChatServer::handleCommunication, this, clientSocket);
+                clientThreads.emplace_back(&ChatServer::handleCommunication, this, clientSocket); // Start a new thread to handle client communication
             }
         }
     }
 
 public:
-    ChatServer() : serverSocket(port) {
-        listenSocket();
+    ChatServer() : serverSocket(port) { // Constructor for ChatServer class, initializes the server socket and starts listening for connections
+        listenSocket(); // Start listening for incoming connections
     }
 
-    ~ChatServer() {
-        serverSocket.closeConnection();
-        for (auto& thread : clientThreads) {
-            thread.join();
+    ~ChatServer() { // Destructor for ChatServer class, closes server socket and joins client threads
+        serverSocket.closeConnection(); // Close the server socket
+        for (auto& thread : clientThreads) { // Iterate through client threads
+            thread.join(); // Join each client thread
         }
     }
+
 
     void createClientDirectory(const std::string& clientFolderPath) {
         if (!std::filesystem::exists(clientFolderPath)) {

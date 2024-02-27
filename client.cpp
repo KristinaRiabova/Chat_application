@@ -11,7 +11,7 @@ std::mutex io_mutex;
 
 class Client {
 private:
-    int port = 12341;
+    int port = 12342;
     const char* serverIp = "127.0.0.1";
     int clientSocket;
     struct sockaddr_in serverAddr;
@@ -34,6 +34,26 @@ public:
         }
     }
 
+    ~Client() {
+        if (receiveThread.joinable()) {
+            receiveThread.join();
+        }
+        close(clientSocket);
+    }
+
+    void connectToServer() {
+        if (clientSocket == -1) {
+            perror("Error creating socket");
+            return;
+        }
+
+        if (connect(clientSocket, reinterpret_cast<struct sockaddr*>(&serverAddr), sizeof(serverAddr)) == -1) {
+            perror("Connect failed");
+            close(clientSocket);
+            return;
+        }
+    }
+
     void printWelcomeMessage() const {
         cout << "\033[1;32m";
         cout << "Welcome to Chat Application!" << endl;
@@ -50,30 +70,38 @@ public:
         if (bytesReceived > 0) {
             std::lock_guard<std::mutex> lock(io_mutex);
             std::string message(buffer, bytesReceived);
-
-            if (message.find("receive") != std::string::npos) {
-                size_t startPos = message.find("wants to send ") + std::string("wants to send ").length();
-                size_t endPos = message.find(" file");
-                std::string filename = message.substr(startPos, endPos - startPos);
-                message += "\nResponse (YES/NO and filename): ";
-
-                cout << "\033[1;33m";
-                cout << message;
-                cout << "\033[0m";
-
-                std::string response;
-                std::getline(std::cin, response);
-                send(clientSocket, response.c_str(), response.length(), 0);
-            } else {
-                cout << "\033[1;36m";
-                cout << message << endl;
-                cout << "\033[0m";
-            }
+            processServerMessage(message);
         } else if (bytesReceived == 0) {
             std::cerr << "Connection closed by server." << std::endl;
         } else {
             std::cerr << "Failed to receive message from server." << std::endl;
         }
+    }
+
+    void processServerMessage(const std::string& message) {
+        if (message.find("receive") != std::string::npos) {
+            handleFileTransferRequest(message);
+        } else {
+            displayMessage(message);
+        }
+    }
+
+    void handleFileTransferRequest(const std::string& message) {
+        size_t startPos = message.find("wants to send ") + std::string("wants to send ").length();
+        size_t endPos = message.find(" file");
+        std::string filename = message.substr(startPos, endPos - startPos);
+        std::string response;
+        cout << "\033[1;33m";
+        cout << message << "\nResponse (YES/NO and filename): ";
+        cout << "\033[0m";
+        std::getline(std::cin, response);
+        send(clientSocket, response.c_str(), response.length(), 0);
+    }
+
+    void displayMessage(const std::string& message) {
+        cout << "\033[1;36m";
+        cout << message << endl;
+        cout << "\033[0m";
     }
 
     void sendClientName() const {
@@ -94,10 +122,11 @@ public:
         send(clientSocket, roomName.c_str(), roomName.size(), 0);
     }
 
-
-
-
     void chat() {
+        printWelcomeMessage();
+        sendClientName();
+        chooseRoom();
+
         string message;
         while (true) {
             if (receiveThread.joinable()) {
@@ -110,7 +139,6 @@ public:
             getline(std::cin, message);
             if (message.find("REJOIN") == 0) {
                 send(clientSocket, message.c_str(), message.size(), 0);
-                cout << "\nYou can rejoin to another room." << endl;
                 sendClientName();
                 chooseRoom();
                 continue;
@@ -124,21 +152,11 @@ public:
             send(clientSocket, message.c_str(), message.size(), 0);
         }
     }
-
-    ~Client() {
-        if (receiveThread.joinable()) {
-            receiveThread.join();
-        }
-        close(clientSocket);
-    }
-
 };
 
 int main() {
     Client client;
-    client.printWelcomeMessage();
-    client.sendClientName();
-    client.chooseRoom();
+    client.connectToServer();
     client.chat();
     return 0;
 }
